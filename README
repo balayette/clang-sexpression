@@ -1,0 +1,6 @@
+Dump clang ASTs as s-expressions.
+
+Building:
+
+$ ln -s $(PWD)/clang-tools-extra/clang-sexpression $PATH_TO_LLVM_PROJECT/clang-tools-extra/clang-sexpression
+$ echo 'add_subdirectory(clang-sexpression)' >> $PATH_TO_LLVM_PROJECT/clang-tools-extra/CMakeLists.txt
