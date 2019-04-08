@@ -42,12 +42,10 @@ void printType(QualType t) { llvm::outs() << "\"" << t.getAsString() << "\""; }
 class SexpVisitor {
 public:
   void VisitTranslationUnit(TranslationUnitDecl *tu) {
-    llvm::outs() << '(' << tu->Decl::getDeclKindName();
-
+    // TranslationUnit are handled in the Consumer to make printing the filename
+    // easier.
     for (auto dec : tu->decls())
       DispatchDecl(dec);
-
-    llvm::outs() << ')';
   }
 
   void VisitTransparentStmt(Stmt *stmt) { RECURSE_CHILDREN_STMT(stmt); }
@@ -216,6 +214,10 @@ public:
     if (!stmt)
       return;
 
+    auto location = stmt->getBeginLoc();
+    if (!location.isValid())
+      return;
+
     switch (stmt->getStmtClass()) {
       DISPATCH_STMT(BinaryOperator)
       DISPATCH_STMT(UnaryOperator)
@@ -225,11 +227,19 @@ public:
       DISPATCH_STMT(DeclRefExpr)
       DISPATCH_STMT(MemberExpr)
       DISPATCH_STMT(SwitchStmt)
+      DISPATCH_STMT(CompoundAssignOperator)
       TRANSPARENT_STMT(ParenExpr)
       TRANSPARENT_STMT(ImplicitCastExpr)
     default:
       return VisitStmt(stmt);
     }
+  }
+
+  void VisitCompoundAssignOperator(CompoundAssignOperator *cao) {
+    llvm::outs() << "(CompoundAssignOperator " << cao->getOpcodeStr().data()
+                 << ' ';
+    RECURSE_CHILDREN_STMT(cao);
+    llvm::outs() << ')';
   }
 
   void VisitMemberExpr(MemberExpr *me) {
@@ -301,10 +311,16 @@ class SexpConsumer : public ASTConsumer {
 public:
   virtual void HandleTranslationUnit(ASTContext &Context) {
     _visitor.setSourceManager(&Context.getSourceManager());
+    llvm::outs() << "(TranslationUnit \"" << _file << "\" ";
     _visitor.VisitTranslationUnit(Context.getTranslationUnitDecl());
+    llvm::outs() << ')';
   }
 
+  SexpConsumer(StringRef file)
+      : ASTConsumer(), _file(file.str()), _visitor(SexpVisitor{}) {}
+
 private:
+  std::string _file;
   SexpVisitor _visitor;
 };
 
@@ -313,8 +329,7 @@ public:
   virtual std::unique_ptr<ASTConsumer>
   CreateASTConsumer(CompilerInstance &Compiler, StringRef InFile) {
     (void)Compiler;
-    (void)InFile;
-    return std::unique_ptr<ASTConsumer>(new SexpConsumer);
+    return std::unique_ptr<ASTConsumer>(new SexpConsumer(InFile));
   }
 };
 
@@ -329,5 +344,9 @@ int main(int argc, const char **argv) {
   CommonOptionsParser OptionsParser(argc, argv, ClangSexpCategory);
   ClangTool Tool(OptionsParser.getCompilations(),
                  OptionsParser.getSourcePathList());
-  return Tool.run(newFrontendActionFactory<SexpAction>().get());
+  llvm::outs() << "(ROOT ";
+  auto ret = Tool.run(newFrontendActionFactory<SexpAction>().get());
+  llvm::outs() << ')';
+
+  return ret;
 }
