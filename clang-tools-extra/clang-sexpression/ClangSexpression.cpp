@@ -68,8 +68,10 @@ public:
     llvm::outs() << "(Function " << f->getNameAsString() << ' ';
 
     printType(f->getType());
+    llvm::outs() << "(FunctionParameters ";
     for (auto param : f->parameters())
       VisitParmVarDecl((ParmVarDecl *)param);
+    llvm::outs() << ')';
 
     DispatchStmt(f->getBody());
 
@@ -126,6 +128,45 @@ public:
     llvm::outs() << ')';
   }
 
+  void VisitCXXRecord(CXXRecordDecl *cxxd) {
+    llvm::outs() << '(';
+    if (cxxd->isUnion())
+      llvm::outs() << "Union";
+    else if (cxxd->isClass())
+      llvm::outs() << "Class";
+    else if (cxxd->isStruct())
+      llvm::outs() << "Struct";
+    else
+      llvm::outs() << "CXXRecordDecl";
+
+    llvm::outs() << ' ' << cxxd->getNameAsString() << ' ';
+
+    llvm::outs() << "(CXXRecordFields ";
+    for (auto *field : cxxd->fields())
+      DispatchDecl(field);
+    llvm::outs() << ')';
+
+    llvm::outs() << "(CXXRecordMethods ";
+    for (auto *method : cxxd->methods())
+      DispatchDecl(method);
+    llvm::outs() << ')';
+
+    llvm::outs() << ')';
+  }
+
+  void VisitCXXMethod(CXXMethodDecl *cxxmd) {
+    llvm::outs() << "(CXXMethod " << cxxmd->getNameAsString() << ' ';
+
+    printType(cxxmd->getType());
+    llvm::outs() << "(CXXMethodParameters";
+    for (auto *param : cxxmd->parameters())
+      VisitParmVarDecl((ParmVarDecl *)param);
+    llvm::outs() << ')';
+    DispatchStmt(cxxmd->getBody());
+
+    llvm::outs() << ')';
+  }
+
   void DispatchDecl(Decl *decl) {
     if (!decl)
       return;
@@ -141,6 +182,7 @@ public:
 
     switch (decl->getKind()) {
       DISPATCH_DECL(Function)
+      DISPATCH_DECL(CXXMethod)
       DISPATCH_DECL(FunctionTemplate)
       DISPATCH_DECL(Typedef)
       DISPATCH_DECL(Record)
@@ -148,10 +190,20 @@ public:
       DISPATCH_DECL(Enum)
       DISPATCH_DECL(EnumConstant)
       DISPATCH_DECL(Var)
+      DISPATCH_DECL(CXXRecord)
+      DISPATCH_DECL(ClassTemplate)
       IGNORE_DECL(LinkageSpec)
     default:
       return VisitDecl(decl);
     }
+  }
+
+  void VisitClassTemplate(ClassTemplateDecl *ctd) {
+    llvm::outs() << "(ClassTemplateDecl ";
+
+    VisitCXXRecord(ctd->getTemplatedDecl());
+
+    llvm::outs() << ')';
   }
 
   void VisitSwitchStmt(SwitchStmt *ss) {
