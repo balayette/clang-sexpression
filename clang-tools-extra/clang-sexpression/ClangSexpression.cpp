@@ -214,9 +214,19 @@ public:
     if (!stmt)
       return;
 
-    auto location = stmt->getBeginLoc();
-    if (!location.isValid())
+    auto range = stmt->getSourceRange();
+    if (!range.getBegin().isValid())
       return;
+
+    if (_sourceManager->isInSystemMacro(range.getBegin())) {
+      // Don't expand system macros, but print them as is.
+      llvm::outs() << '"'
+                   << Lexer::getSourceText(
+                          CharSourceRange::getTokenRange(range),
+                          *_sourceManager, LangOptions(), 0)
+                   << '"';
+      return;
+    }
 
     switch (stmt->getStmtClass()) {
       DISPATCH_STMT(BinaryOperator)
@@ -229,6 +239,8 @@ public:
       DISPATCH_STMT(SwitchStmt)
       DISPATCH_STMT(CompoundAssignOperator)
       TRANSPARENT_STMT(ParenExpr)
+      TRANSPARENT_STMT(ExprWithCleanups)
+      TRANSPARENT_STMT(MaterializeTemporaryExpr)
       TRANSPARENT_STMT(ImplicitCastExpr)
     default:
       return VisitStmt(stmt);
