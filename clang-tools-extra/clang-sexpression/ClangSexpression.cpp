@@ -291,7 +291,7 @@ public:
 
   void VisitUnaryOperator(UnaryOperator *op) {
     llvm::outs() << "(UnaryOperator "
-                 << UnaryOperator::getOpcodeStr(op->getOpcode()).data();
+                 << UnaryOperator::getOpcodeStr(op->getOpcode()).data() << ' ';
     DispatchStmt(op->getSubExpr());
     llvm::outs() << ')';
   }
@@ -354,8 +354,10 @@ static llvm::cl::extrahelp
 
 int main(int argc, const char **argv) {
   CommonOptionsParser OptionsParser(argc, argv, ClangSexpCategory);
-  ClangTool Tool(OptionsParser.getCompilations(),
-                 OptionsParser.getSourcePathList());
+  auto compilationDatabaseFiles = OptionsParser.getCompilations().getAllFiles();
+  auto &files = OptionsParser.getSourcePathList();
+
+  ClangTool Tool(OptionsParser.getCompilations(), compilationDatabaseFiles);
   llvm::outs() << "(ROOT ";
   auto ret = Tool.run(newFrontendActionFactory<SexpAction>().get());
   llvm::outs() << ')';
