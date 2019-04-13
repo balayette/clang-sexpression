@@ -8,10 +8,6 @@
 #include "clang/Tooling/Tooling.h"
 #include "llvm/Support/CommandLine.h"
 
-#include <queue>
-#include <stack>
-#include <utility>
-
 using namespace clang::tooling;
 using namespace clang;
 
@@ -347,6 +343,12 @@ public:
 
 static llvm::cl::OptionCategory ClangSexpCategory("clang-sexpression options");
 
+static llvm::cl::opt<bool> DontPrintRoot(
+    "dont-print-root",
+    llvm::cl::desc(
+        "Don't add a ROOT node at the root of the s-expression. (0 or 1)"),
+    llvm::cl::init(false), llvm::cl::cat(ClangSexpCategory));
+
 static llvm::cl::extrahelp CommonHelp(CommonOptionsParser::HelpMessage);
 
 static llvm::cl::extrahelp
@@ -355,12 +357,15 @@ static llvm::cl::extrahelp
 int main(int argc, const char **argv) {
   CommonOptionsParser OptionsParser(argc, argv, ClangSexpCategory);
   auto compilationDatabaseFiles = OptionsParser.getCompilations().getAllFiles();
-  auto &files = OptionsParser.getSourcePathList();
 
-  ClangTool Tool(OptionsParser.getCompilations(), compilationDatabaseFiles);
-  llvm::outs() << "(ROOT ";
+  ClangTool Tool(OptionsParser.getCompilations(),
+                 OptionsParser.getSourcePathList());
+
+  if (!DontPrintRoot)
+    llvm::outs() << "(ROOT ";
   auto ret = Tool.run(newFrontendActionFactory<SexpAction>().get());
-  llvm::outs() << ')';
+  if (!DontPrintRoot)
+    llvm::outs() << ")";
 
   return ret;
 }
