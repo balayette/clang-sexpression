@@ -8,6 +8,8 @@
 #include "clang/Tooling/Tooling.h"
 #include "llvm/Support/CommandLine.h"
 
+#include <fnmatch.h>
+
 using namespace clang::tooling;
 using namespace clang;
 
@@ -174,6 +176,12 @@ public:
     if (_sourceManager->isInSystemHeader(decl->getLocation()))
       return;
 
+    if (_sourceManager->getFilename(decl->getLocation()).endswith(".h"))
+      return;
+
+    if (_sourceManager->getFilename(decl->getLocation()).endswith(".hh"))
+      return;
+
     switch (decl->getKind()) {
       DISPATCH_DECL(Function)
       DISPATCH_DECL(CXXMethod)
@@ -206,6 +214,12 @@ public:
     llvm::outs() << ')';
   }
 
+  void VisitGCCAsmStmt(GCCAsmStmt *as) {
+    llvm::outs() << "(GCCAsmStmt ";
+    llvm::outs() << '"' << as->getAsmString()->getString() << '"';
+    llvm::outs() << ')';
+  }
+
   void DispatchStmt(Stmt *stmt) {
     if (!stmt)
       return;
@@ -234,6 +248,7 @@ public:
       DISPATCH_STMT(MemberExpr)
       DISPATCH_STMT(SwitchStmt)
       DISPATCH_STMT(CompoundAssignOperator)
+      DISPATCH_STMT(GCCAsmStmt)
       TRANSPARENT_STMT(ParenExpr)
       TRANSPARENT_STMT(ExprWithCleanups)
       TRANSPARENT_STMT(MaterializeTemporaryExpr)
