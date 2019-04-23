@@ -35,10 +35,40 @@ using namespace clang;
       DispatchStmt(it);                                                        \
   } while (0)
 
-void printType(QualType t) { llvm::outs() << "\"" << t.getAsString() << "\""; }
+static llvm::cl::OptionCategory ClangSexpCategory("clang-sexpression options");
+
+static llvm::cl::opt<bool> DontPrintRoot(
+    "dont-print-root",
+    llvm::cl::desc("Don't add a ROOT node at the root of the s-expression."),
+    llvm::cl::init(false), llvm::cl::cat(ClangSexpCategory));
+
+static llvm::cl::opt<bool> DebugOutput("debug-output",
+                                       llvm::cl::desc("Output debug info"),
+                                       llvm::cl::init(false),
+                                       llvm::cl::cat(ClangSexpCategory));
+
+static llvm::cl::opt<std::string> OutputFile("o", llvm::cl::desc("Output file"),
+                                             llvm::cl::init("-"),
+                                             llvm::cl::cat(ClangSexpCategory));
+
+static llvm::cl::opt<std::string>
+    DebugOutputFile("debug-o", llvm::cl::desc("Debug output file"),
+                    llvm::cl::init("-"), llvm::cl::cat(ClangSexpCategory));
+
+static llvm::cl::extrahelp CommonHelp(CommonOptionsParser::HelpMessage);
+
+static llvm::cl::extrahelp
+    MoreHelp("\nThis tool converts clang ASTs to S-Expressions\n");
+
+static std::shared_ptr<llvm::raw_ostream> OutputStream;
+static std::shared_ptr<llvm::raw_ostream> DebugOutputStream;
 
 class SexpVisitor {
 public:
+  void printType(QualType t) {
+    *OutputStream << "\"" << t.getAsString() << "\"";
+  }
+
   void VisitTranslationUnit(TranslationUnitDecl *tu) {
     // TranslationUnit are handled in the Consumer to make printing the filename
     // easier.
@@ -49,118 +79,118 @@ public:
   void VisitTransparentStmt(Stmt *stmt) { RECURSE_CHILDREN_STMT(stmt); }
 
   void VisitDecl(Decl *decl) {
-    llvm::outs() << '(' << decl->getDeclKindName() << ' ';
+    *OutputStream << '(' << decl->getDeclKindName() << ' ';
 
     if (decl->hasBody())
       DispatchStmt(decl->getBody());
 
-    llvm::outs() << ')';
+    *OutputStream << ')';
   }
 
   void VisitFunction(FunctionDecl *f) {
     if (!f->hasBody())
       return;
 
-    llvm::outs() << "(Function " << f->getNameAsString() << ' ';
+    *OutputStream << "(Function " << f->getNameAsString() << ' ';
 
     printType(f->getType());
-    llvm::outs() << "(FunctionParameters ";
+    *OutputStream << "(FunctionParameters ";
     for (auto param : f->parameters())
-      VisitParmVarDecl((ParmVarDecl *)param);
-    llvm::outs() << ')';
+      DispatchDecl((ParmVarDecl *)param);
+    *OutputStream << ')';
 
     DispatchStmt(f->getBody());
 
-    llvm::outs() << ')';
+    *OutputStream << ')';
   }
 
   void VisitFunctionTemplate(FunctionTemplateDecl *ft) {
-    llvm::outs() << "(FunctionTemplate " << ft->getNameAsString() << ' ';
+    *OutputStream << "(FunctionTemplate " << ft->getNameAsString() << ' ';
     VisitFunction(ft->getTemplatedDecl());
-    llvm::outs() << ')';
+    *OutputStream << ')';
   }
 
-  void VisitParmVarDecl(ParmVarDecl *p) {
-    llvm::outs() << "(ParmVarDecl " << p->getNameAsString() << ' ';
+  void VisitParmVar(ParmVarDecl *p) {
+    *OutputStream << "(ParmVarDecl " << p->getNameAsString() << ' ';
     printType(p->getType());
-    llvm::outs() << ')';
+    *OutputStream << ')';
   }
 
   void VisitTypedef(TypedefDecl *td) {
-    llvm::outs() << "(Typedef " << td->getNameAsString() << ' ';
+    *OutputStream << "(Typedef " << td->getNameAsString() << ' ';
     printType(td->getUnderlyingType());
-    llvm::outs() << ')';
+    *OutputStream << ')';
   }
 
   void VisitRecord(RecordDecl *rd) {
-    llvm::outs() << "(Record " << rd->getNameAsString() << ' ';
+    *OutputStream << "(Record " << rd->getNameAsString() << ' ';
     for (auto *field : rd->fields())
       DispatchDecl(field);
-    llvm::outs() << ')';
+    *OutputStream << ')';
   }
 
   void VisitField(FieldDecl *fd) {
-    llvm::outs() << '(' << fd->getNameAsString() << ' ';
+    *OutputStream << '(' << fd->getNameAsString() << ' ';
     printType(fd->getType());
-    llvm::outs() << ')';
+    *OutputStream << ')';
   }
 
   void VisitEnum(EnumDecl *ed) {
-    llvm::outs() << "(Enum " << ed->getNameAsString();
+    *OutputStream << "(Enum " << ed->getNameAsString();
     for (auto *field : ed->enumerators())
       DispatchDecl(field);
-    llvm::outs() << ')';
+    *OutputStream << ')';
   }
 
   void VisitEnumConstant(EnumConstantDecl *ecd) {
-    llvm::outs() << '(' << ecd->getNameAsString() << ' '
-                 << ecd->getInitVal().getExtValue() << ')';
+    *OutputStream << '(' << ecd->getNameAsString() << ' '
+                  << ecd->getInitVal().getExtValue() << ')';
   }
 
   void VisitVar(VarDecl *vd) {
-    llvm::outs() << "(VarDecl " << vd->getNameAsString() << ' ';
+    *OutputStream << "(VarDecl " << vd->getNameAsString() << ' ';
     DispatchStmt(vd->getInit());
     printType(vd->getType());
-    llvm::outs() << ')';
+    *OutputStream << ')';
   }
 
   void VisitCXXRecord(CXXRecordDecl *cxxd) {
-    llvm::outs() << '(';
+    *OutputStream << '(';
     if (cxxd->isUnion())
-      llvm::outs() << "Union";
+      *OutputStream << "Union";
     else if (cxxd->isClass())
-      llvm::outs() << "Class";
+      *OutputStream << "Class";
     else if (cxxd->isStruct())
-      llvm::outs() << "Struct";
+      *OutputStream << "Struct";
     else
-      llvm::outs() << "CXXRecordDecl";
+      *OutputStream << "CXXRecordDecl";
 
-    llvm::outs() << ' ' << cxxd->getNameAsString() << ' ';
+    *OutputStream << ' ' << cxxd->getNameAsString() << ' ';
 
-    llvm::outs() << "(CXXRecordFields ";
+    *OutputStream << "(CXXRecordFields ";
     for (auto *field : cxxd->fields())
       DispatchDecl(field);
-    llvm::outs() << ')';
+    *OutputStream << ')';
 
-    llvm::outs() << "(CXXRecordMethods ";
+    *OutputStream << "(CXXRecordMethods ";
     for (auto *method : cxxd->methods())
       DispatchDecl(method);
-    llvm::outs() << ')';
+    *OutputStream << ')';
 
-    llvm::outs() << ')';
+    *OutputStream << ')';
   }
 
   void VisitCXXMethod(CXXMethodDecl *cxxmd) {
-    llvm::outs() << "(CXXMethod " << cxxmd->getNameAsString() << ' ';
+    *OutputStream << "(CXXMethod " << cxxmd->getNameAsString() << ' ';
 
     printType(cxxmd->getType());
-    llvm::outs() << "(CXXMethodParameters";
+    *OutputStream << "(CXXMethodParameters";
     for (auto *param : cxxmd->parameters())
-      VisitParmVarDecl((ParmVarDecl *)param);
-    llvm::outs() << ')';
+      DispatchDecl((ParmVarDecl *)param);
+    *OutputStream << ')';
     DispatchStmt(cxxmd->getBody());
 
-    llvm::outs() << ')';
+    *OutputStream << ')';
   }
 
   void DispatchDecl(Decl *decl) {
@@ -182,6 +212,11 @@ public:
     if (_sourceManager->getFilename(decl->getLocation()).endswith(".hh"))
       return;
 
+    if (DebugOutput) {
+      decl->getSourceRange().print(*DebugOutputStream, *_sourceManager);
+      *DebugOutputStream << '\n';
+    }
+
     switch (decl->getKind()) {
       DISPATCH_DECL(Function)
       DISPATCH_DECL(CXXMethod)
@@ -193,6 +228,7 @@ public:
       DISPATCH_DECL(EnumConstant)
       DISPATCH_DECL(Var)
       DISPATCH_DECL(CXXRecord)
+      DISPATCH_DECL(ParmVar)
       DISPATCH_DECL(ClassTemplate)
       IGNORE_DECL(LinkageSpec)
     default:
@@ -201,23 +237,23 @@ public:
   }
 
   void VisitClassTemplate(ClassTemplateDecl *ctd) {
-    llvm::outs() << "(ClassTemplateDecl ";
+    *OutputStream << "(ClassTemplateDecl ";
 
     VisitCXXRecord(ctd->getTemplatedDecl());
 
-    llvm::outs() << ')';
+    *OutputStream << ')';
   }
 
   void VisitSwitchStmt(SwitchStmt *ss) {
-    llvm::outs() << "(SwitchStmt ";
+    *OutputStream << "(SwitchStmt ";
     RECURSE_CHILDREN_STMT(ss);
-    llvm::outs() << ')';
+    *OutputStream << ')';
   }
 
   void VisitGCCAsmStmt(GCCAsmStmt *as) {
-    llvm::outs() << "(GCCAsmStmt ";
-    llvm::outs() << '"' << as->getAsmString()->getString() << '"';
-    llvm::outs() << ')';
+    *OutputStream << "(GCCAsmStmt ";
+    *OutputStream << '"' << as->getAsmString()->getString() << '"';
+    *OutputStream << ')';
   }
 
   void DispatchStmt(Stmt *stmt) {
@@ -228,13 +264,18 @@ public:
     if (!range.getBegin().isValid())
       return;
 
+    if (DebugOutput) {
+      range.print(*DebugOutputStream, *_sourceManager);
+      *DebugOutputStream << '\n';
+    }
+
     if (_sourceManager->isInSystemMacro(range.getBegin())) {
       // Don't expand system macros, but print them as is.
-      llvm::outs() << '"'
-                   << Lexer::getSourceText(
-                          CharSourceRange::getTokenRange(range),
-                          *_sourceManager, LangOptions(), 0)
-                   << '"';
+      *OutputStream << '"'
+                    << Lexer::getSourceText(
+                           CharSourceRange::getTokenRange(range),
+                           *_sourceManager, LangOptions(), 0)
+                    << '"';
       return;
     }
 
@@ -259,69 +300,69 @@ public:
   }
 
   void VisitCompoundAssignOperator(CompoundAssignOperator *cao) {
-    llvm::outs() << "(CompoundAssignOperator " << cao->getOpcodeStr().data()
-                 << ' ';
+    *OutputStream << "(CompoundAssignOperator " << cao->getOpcodeStr().data()
+                  << ' ';
     RECURSE_CHILDREN_STMT(cao);
-    llvm::outs() << ')';
+    *OutputStream << ')';
   }
 
   void VisitMemberExpr(MemberExpr *me) {
-    llvm::outs() << "(MemberExpr ";
+    *OutputStream << "(MemberExpr ";
     RECURSE_CHILDREN_STMT(me);
-    llvm::outs() << me->getMemberDecl()->getNameAsString() << ')';
+    *OutputStream << me->getMemberDecl()->getNameAsString() << ')';
   }
 
   void VisitDeclStmt(DeclStmt *stmt) {
     if (stmt->isSingleDecl()) {
-      llvm::outs() << "(DeclStmt ";
+      *OutputStream << "(DeclStmt ";
       if (auto *var = dyn_cast<VarDecl>(stmt->getSingleDecl()))
         DispatchDecl(var);
       else
-        llvm::outs() << stmt->getSingleDecl()->getDeclKindName();
+        *OutputStream << stmt->getSingleDecl()->getDeclKindName();
 
-      llvm::outs() << ')';
+      *OutputStream << ')';
     }
   }
 
   void VisitIntegerLiteral(IntegerLiteral *i) {
-    llvm::outs() << "(IntegerLiteral " << i->getValue().getLimitedValue()
-                 << ' ';
+    *OutputStream << "(IntegerLiteral " << i->getValue().getLimitedValue()
+                  << ' ';
     printType(i->getType());
-    llvm::outs() << ")";
+    *OutputStream << ")";
   }
 
   void VisitStringLiteral(StringLiteral *s) {
-    llvm::outs() << "(StringLiteral ";
-    s->outputString(llvm::outs());
-    llvm::outs() << ")";
+    *OutputStream << "(StringLiteral ";
+    s->outputString(*OutputStream);
+    *OutputStream << ")";
   }
 
   void VisitDeclRefExpr(DeclRefExpr *ref) {
-    llvm::outs() << '(' << ref->getDecl()->getNameAsString() << ')';
+    *OutputStream << '(' << ref->getDecl()->getNameAsString() << ')';
   }
 
   void VisitUnaryOperator(UnaryOperator *op) {
-    llvm::outs() << "(UnaryOperator "
-                 << UnaryOperator::getOpcodeStr(op->getOpcode()).data() << ' ';
+    *OutputStream << "(UnaryOperator "
+                  << UnaryOperator::getOpcodeStr(op->getOpcode()).data() << ' ';
     DispatchStmt(op->getSubExpr());
-    llvm::outs() << ')';
+    *OutputStream << ')';
   }
 
   void VisitBinaryOperator(BinaryOperator *op) {
-    llvm::outs() << "(BinaryOperator " << op->getOpcodeStr().data() << ' ';
+    *OutputStream << "(BinaryOperator " << op->getOpcodeStr().data() << ' ';
 
     DispatchStmt(op->getLHS());
     DispatchStmt(op->getRHS());
 
-    llvm::outs() << ')';
+    *OutputStream << ')';
   }
 
   void VisitStmt(Stmt *stmt) {
-    llvm::outs() << '(' << stmt->getStmtClassName();
+    *OutputStream << '(' << stmt->getStmtClassName();
 
     RECURSE_CHILDREN_STMT(stmt);
 
-    llvm::outs() << ')';
+    *OutputStream << ')';
   }
 
   void setSourceManager(SourceManager *SM) { _sourceManager = SM; }
@@ -334,9 +375,13 @@ class SexpConsumer : public ASTConsumer {
 public:
   virtual void HandleTranslationUnit(ASTContext &Context) {
     _visitor.setSourceManager(&Context.getSourceManager());
-    llvm::outs() << "(TranslationUnit \"" << _file << "\" ";
+
+    if (DebugOutput)
+      *DebugOutputStream << _file << "\n";
+
+    *OutputStream << "(TranslationUnit \"" << _file << "\" ";
     _visitor.VisitTranslationUnit(Context.getTranslationUnitDecl());
-    llvm::outs() << ')';
+    *OutputStream << ')';
   }
 
   SexpConsumer(StringRef file)
@@ -352,22 +397,10 @@ public:
   virtual std::unique_ptr<ASTConsumer>
   CreateASTConsumer(CompilerInstance &Compiler, StringRef InFile) {
     (void)Compiler;
+
     return std::unique_ptr<ASTConsumer>(new SexpConsumer(InFile));
   }
 };
-
-static llvm::cl::OptionCategory ClangSexpCategory("clang-sexpression options");
-
-static llvm::cl::opt<bool> DontPrintRoot(
-    "dont-print-root",
-    llvm::cl::desc(
-        "Don't add a ROOT node at the root of the s-expression. (0 or 1)"),
-    llvm::cl::init(false), llvm::cl::cat(ClangSexpCategory));
-
-static llvm::cl::extrahelp CommonHelp(CommonOptionsParser::HelpMessage);
-
-static llvm::cl::extrahelp
-    MoreHelp("\nThis tool converts clang ASTs to S-Expressions\n");
 
 int main(int argc, const char **argv) {
   CommonOptionsParser OptionsParser(argc, argv, ClangSexpCategory);
@@ -376,11 +409,30 @@ int main(int argc, const char **argv) {
   ClangTool Tool(OptionsParser.getCompilations(),
                  OptionsParser.getSourcePathList());
 
+  if (OutputFile == "-" && DebugOutputFile == "-" && DebugOutput) {
+    llvm::errs() << "Can't set the debug and output files to stdout.";
+    return 1;
+  }
+
+  std::error_code err;
+  if (DebugOutput) {
+    if (DebugOutputFile != "-")
+      DebugOutputStream =
+          std::make_shared<llvm::raw_fd_ostream>(DebugOutputFile, err);
+    else
+      DebugOutputStream.reset(&llvm::errs(), [](llvm::raw_ostream *a) {});
+  }
+
+  if (OutputFile != "-")
+    OutputStream = std::make_shared<llvm::raw_fd_ostream>(OutputFile, err);
+  else
+    OutputStream.reset(&llvm::outs(), [](llvm::raw_ostream *a) {});
+
   if (!DontPrintRoot)
-    llvm::outs() << "(ROOT ";
+    *OutputStream << "(ROOT ";
   auto ret = Tool.run(newFrontendActionFactory<SexpAction>().get());
   if (!DontPrintRoot)
-    llvm::outs() << ")";
+    *OutputStream << ")";
 
   return ret;
 }
