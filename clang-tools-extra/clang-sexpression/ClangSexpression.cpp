@@ -65,7 +65,8 @@ static std::shared_ptr<llvm::raw_ostream> DebugOutputStream;
 
 class SexpVisitor {
 public:
-  void printType(QualType t) {
+  void printType(QualType t, const SourceRange &range) {
+    locationDebug(range);
     *OutputStream << "\"" << t.getAsString() << "\"";
   }
 
@@ -80,6 +81,7 @@ public:
 
   void VisitDecl(Decl *decl) {
     *OutputStream << '(' << decl->getDeclKindName() << ' ';
+    locationDebug(decl->getSourceRange());
 
     if (decl->hasBody())
       DispatchStmt(decl->getBody());
@@ -91,10 +93,12 @@ public:
     if (!f->hasBody())
       return;
 
+    locationDebug(f->getSourceRange());
     *OutputStream << "(Function " << f->getNameAsString() << ' ';
 
-    printType(f->getType());
+    printType(f->getType(), f->getSourceRange());
     *OutputStream << "(FunctionParameters ";
+    locationDebug(f->getSourceRange());
     for (auto param : f->parameters())
       DispatchDecl((ParmVarDecl *)param);
     *OutputStream << ')';
@@ -106,24 +110,28 @@ public:
 
   void VisitFunctionTemplate(FunctionTemplateDecl *ft) {
     *OutputStream << "(FunctionTemplate " << ft->getNameAsString() << ' ';
+    locationDebug(ft->getSourceRange());
     VisitFunction(ft->getTemplatedDecl());
     *OutputStream << ')';
   }
 
   void VisitParmVar(ParmVarDecl *p) {
     *OutputStream << "(ParmVarDecl " << p->getNameAsString() << ' ';
-    printType(p->getType());
+    locationDebug(p->getSourceRange());
+    printType(p->getType(), p->getSourceRange());
     *OutputStream << ')';
   }
 
   void VisitTypedef(TypedefDecl *td) {
     *OutputStream << "(Typedef " << td->getNameAsString() << ' ';
-    printType(td->getUnderlyingType());
+    locationDebug(td->getSourceRange());
+    printType(td->getUnderlyingType(), td->getSourceRange());
     *OutputStream << ')';
   }
 
   void VisitRecord(RecordDecl *rd) {
     *OutputStream << "(Record " << rd->getNameAsString() << ' ';
+    locationDebug(rd->getSourceRange());
     for (auto *field : rd->fields())
       DispatchDecl(field);
     *OutputStream << ')';
@@ -131,12 +139,14 @@ public:
 
   void VisitField(FieldDecl *fd) {
     *OutputStream << '(' << fd->getNameAsString() << ' ';
-    printType(fd->getType());
+    locationDebug(fd->getSourceRange());
+    printType(fd->getType(), fd->getSourceRange());
     *OutputStream << ')';
   }
 
   void VisitEnum(EnumDecl *ed) {
     *OutputStream << "(Enum " << ed->getNameAsString();
+    locationDebug(ed->getSourceRange());
     for (auto *field : ed->enumerators())
       DispatchDecl(field);
     *OutputStream << ')';
@@ -145,12 +155,14 @@ public:
   void VisitEnumConstant(EnumConstantDecl *ecd) {
     *OutputStream << '(' << ecd->getNameAsString() << ' '
                   << ecd->getInitVal().getExtValue() << ')';
+    locationDebug(ecd->getSourceRange());
   }
 
   void VisitVar(VarDecl *vd) {
     *OutputStream << "(VarDecl " << vd->getNameAsString() << ' ';
+    locationDebug(vd->getSourceRange());
     DispatchStmt(vd->getInit());
-    printType(vd->getType());
+    printType(vd->getType(), vd->getSourceRange());
     *OutputStream << ')';
   }
 
@@ -165,14 +177,17 @@ public:
     else
       *OutputStream << "CXXRecordDecl";
 
+    locationDebug(cxxd->getSourceRange());
     *OutputStream << ' ' << cxxd->getNameAsString() << ' ';
 
     *OutputStream << "(CXXRecordFields ";
+    locationDebug(cxxd->getSourceRange());
     for (auto *field : cxxd->fields())
       DispatchDecl(field);
     *OutputStream << ')';
 
     *OutputStream << "(CXXRecordMethods ";
+    locationDebug(cxxd->getSourceRange());
     for (auto *method : cxxd->methods())
       DispatchDecl(method);
     *OutputStream << ')';
@@ -182,9 +197,11 @@ public:
 
   void VisitCXXMethod(CXXMethodDecl *cxxmd) {
     *OutputStream << "(CXXMethod " << cxxmd->getNameAsString() << ' ';
+    locationDebug(cxxmd->getSourceRange());
 
-    printType(cxxmd->getType());
+    printType(cxxmd->getType(), cxxmd->getSourceRange());
     *OutputStream << "(CXXMethodParameters";
+    locationDebug(cxxmd->getSourceRange());
     for (auto *param : cxxmd->parameters())
       DispatchDecl((ParmVarDecl *)param);
     *OutputStream << ')';
@@ -212,10 +229,7 @@ public:
     if (_sourceManager->getFilename(decl->getLocation()).endswith(".hh"))
       return;
 
-    if (DebugOutput) {
-      decl->getSourceRange().print(*DebugOutputStream, *_sourceManager);
-      *DebugOutputStream << '\n';
-    }
+    locationDebug(decl->getSourceRange());
 
     switch (decl->getKind()) {
       DISPATCH_DECL(Function)
@@ -253,6 +267,7 @@ public:
   void VisitGCCAsmStmt(GCCAsmStmt *as) {
     *OutputStream << "(GCCAsmStmt ";
     *OutputStream << '"' << as->getAsmString()->getString() << '"';
+    locationDebug(as->getSourceRange());
     *OutputStream << ')';
   }
 
@@ -264,10 +279,7 @@ public:
     if (!range.getBegin().isValid())
       return;
 
-    if (DebugOutput) {
-      range.print(*DebugOutputStream, *_sourceManager);
-      *DebugOutputStream << '\n';
-    }
+    locationDebug(range);
 
     if (_sourceManager->isInSystemMacro(range.getBegin())) {
       // Don't expand system macros, but print them as is.
@@ -302,6 +314,7 @@ public:
   void VisitCompoundAssignOperator(CompoundAssignOperator *cao) {
     *OutputStream << "(CompoundAssignOperator " << cao->getOpcodeStr().data()
                   << ' ';
+    locationDebug(cao->getSourceRange());
     RECURSE_CHILDREN_STMT(cao);
     *OutputStream << ')';
   }
@@ -310,6 +323,7 @@ public:
     *OutputStream << "(MemberExpr ";
     RECURSE_CHILDREN_STMT(me);
     *OutputStream << me->getMemberDecl()->getNameAsString() << ')';
+    locationDebug(me->getMemberDecl()->getSourceRange());
   }
 
   void VisitDeclStmt(DeclStmt *stmt) {
@@ -317,8 +331,10 @@ public:
       *OutputStream << "(DeclStmt ";
       if (auto *var = dyn_cast<VarDecl>(stmt->getSingleDecl()))
         DispatchDecl(var);
-      else
+      else {
         *OutputStream << stmt->getSingleDecl()->getDeclKindName();
+        locationDebug(stmt->getSingleDecl()->getSourceRange());
+      }
 
       *OutputStream << ')';
     }
@@ -327,13 +343,15 @@ public:
   void VisitIntegerLiteral(IntegerLiteral *i) {
     *OutputStream << "(IntegerLiteral " << i->getValue().getLimitedValue()
                   << ' ';
-    printType(i->getType());
+    locationDebug(i->getSourceRange());
+    printType(i->getType(), i->getSourceRange());
     *OutputStream << ")";
   }
 
   void VisitStringLiteral(StringLiteral *s) {
     *OutputStream << "(StringLiteral ";
     s->outputString(*OutputStream);
+    locationDebug(s->getSourceRange());
     *OutputStream << ")";
   }
 
@@ -344,12 +362,14 @@ public:
   void VisitUnaryOperator(UnaryOperator *op) {
     *OutputStream << "(UnaryOperator "
                   << UnaryOperator::getOpcodeStr(op->getOpcode()).data() << ' ';
+    locationDebug(op->getSourceRange());
     DispatchStmt(op->getSubExpr());
     *OutputStream << ')';
   }
 
   void VisitBinaryOperator(BinaryOperator *op) {
     *OutputStream << "(BinaryOperator " << op->getOpcodeStr().data() << ' ';
+    locationDebug(op->getSourceRange());
 
     DispatchStmt(op->getLHS());
     DispatchStmt(op->getRHS());
@@ -368,6 +388,18 @@ public:
   void setSourceManager(SourceManager *SM) { _sourceManager = SM; }
 
 private:
+  void locationDebug(const SourceRange &range, int count = 1) {
+    if (!DebugOutput)
+      return;
+
+    for (int i = 0; i < count; i++) {
+      range.getBegin().print(*DebugOutputStream, *_sourceManager);
+      *DebugOutputStream << ' ';
+      range.getEnd().print(*DebugOutputStream, *_sourceManager);
+      *DebugOutputStream << '\n';
+    }
+  }
+
   SourceManager *_sourceManager;
 };
 
@@ -376,8 +408,10 @@ public:
   virtual void HandleTranslationUnit(ASTContext &Context) {
     _visitor.setSourceManager(&Context.getSourceManager());
 
-    if (DebugOutput)
-      *DebugOutputStream << _file << "\n";
+    if (DebugOutput) {
+      *DebugOutputStream << _file << ":begin " << _file << ":end\n";
+      *DebugOutputStream << _file << ":begin " << _file << ":end\n";
+    }
 
     *OutputStream << "(TranslationUnit \"" << _file << "\" ";
     _visitor.VisitTranslationUnit(Context.getTranslationUnitDecl());
@@ -420,7 +454,7 @@ int main(int argc, const char **argv) {
       DebugOutputStream =
           std::make_shared<llvm::raw_fd_ostream>(DebugOutputFile, err);
     else
-      DebugOutputStream.reset(&llvm::errs(), [](llvm::raw_ostream *a) {});
+      DebugOutputStream.reset(&llvm::outs(), [](llvm::raw_ostream *a) {});
   }
 
   if (OutputFile != "-")
