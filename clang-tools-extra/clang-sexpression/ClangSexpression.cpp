@@ -15,10 +15,12 @@ using namespace clang;
 
 #define DISPATCH_STMT(X)                                                       \
   case Stmt::StmtClass::X##Class:                                              \
+    locationDebug(range);                                                      \
     return Visit##X((X *)stmt);
 
 #define DISPATCH_DECL(X)                                                       \
   case Decl::Kind::X:                                                          \
+    locationDebug(decl->getSourceRange());                                     \
     return Visit##X((X##Decl *)decl);
 
 #define TRANSPARENT_STMT(X)                                                    \
@@ -81,7 +83,6 @@ public:
 
   void VisitDecl(Decl *decl) {
     *OutputStream << '(' << decl->getDeclKindName() << ' ';
-    locationDebug(decl->getSourceRange());
 
     if (decl->hasBody())
       DispatchStmt(decl->getBody());
@@ -89,15 +90,18 @@ public:
     *OutputStream << ')';
   }
 
-  void VisitFunction(FunctionDecl *f) {
+  void VisitFunction(const FunctionDecl *f) {
     if (!f->hasBody())
       return;
 
-    locationDebug(f->getSourceRange());
+    // 2, because they're not printed in the DispatchDecl function.
+    locationDebug(f->getBody(f)->getSourceRange(), 2);
+
     *OutputStream << "(Function " << f->getNameAsString() << ' ';
 
     printType(f->getType(), f->getSourceRange());
     *OutputStream << "(FunctionParameters ";
+
     locationDebug(f->getSourceRange());
     for (auto param : f->parameters())
       DispatchDecl((ParmVarDecl *)param);
@@ -139,7 +143,6 @@ public:
 
   void VisitField(FieldDecl *fd) {
     *OutputStream << '(' << fd->getNameAsString() << ' ';
-    locationDebug(fd->getSourceRange());
     printType(fd->getType(), fd->getSourceRange());
     *OutputStream << ')';
   }
@@ -229,10 +232,9 @@ public:
     if (_sourceManager->getFilename(decl->getLocation()).endswith(".hh"))
       return;
 
-    locationDebug(decl->getSourceRange());
-
     switch (decl->getKind()) {
-      DISPATCH_DECL(Function)
+    case Decl::Kind::Function:
+      return VisitFunction((FunctionDecl *)decl);
       DISPATCH_DECL(CXXMethod)
       DISPATCH_DECL(FunctionTemplate)
       DISPATCH_DECL(Typedef)
@@ -246,6 +248,7 @@ public:
       DISPATCH_DECL(ClassTemplate)
       IGNORE_DECL(LinkageSpec)
     default:
+      locationDebug(decl->getSourceRange());
       return VisitDecl(decl);
     }
   }
@@ -279,10 +282,9 @@ public:
     if (!range.getBegin().isValid())
       return;
 
-    locationDebug(range);
-
     if (_sourceManager->isInSystemMacro(range.getBegin())) {
       // Don't expand system macros, but print them as is.
+      locationDebug(range);
       *OutputStream << '"'
                     << Lexer::getSourceText(
                            CharSourceRange::getTokenRange(range),
@@ -307,6 +309,7 @@ public:
       TRANSPARENT_STMT(MaterializeTemporaryExpr)
       TRANSPARENT_STMT(ImplicitCastExpr)
     default:
+      locationDebug(range);
       return VisitStmt(stmt);
     }
   }
@@ -462,11 +465,16 @@ int main(int argc, const char **argv) {
   else
     OutputStream.reset(&llvm::outs(), [](llvm::raw_ostream *a) {});
 
-  if (!DontPrintRoot)
+  if (!DontPrintRoot) {
     *OutputStream << "(ROOT ";
+    if (DebugOutput) {
+      *DebugOutputStream << "root:begin root:end\n";
+    }
+  }
   auto ret = Tool.run(newFrontendActionFactory<SexpAction>().get());
-  if (!DontPrintRoot)
+  if (!DontPrintRoot) {
     *OutputStream << ")";
+  }
 
   return ret;
 }
