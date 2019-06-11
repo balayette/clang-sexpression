@@ -285,11 +285,14 @@ public:
     if (_sourceManager->isInSystemMacro(range.getBegin())) {
       // Don't expand system macros, but print them as is.
       locationDebug(range);
+      *OutputStream << "(MACRO)";
+      /*
       *OutputStream << '"'
                     << Lexer::getSourceText(
                            CharSourceRange::getTokenRange(range),
                            *_sourceManager, LangOptions(), 0)
                     << '"';
+        */
       return;
     }
 
@@ -353,7 +356,7 @@ public:
 
   void VisitStringLiteral(StringLiteral *s) {
     *OutputStream << "(StringLiteral ";
-    s->outputString(*OutputStream);
+    *OutputStream << "STRING_LIT";
     locationDebug(s->getSourceRange());
     *OutputStream << ")";
   }
