@@ -224,6 +224,16 @@ public:
     *OutputStream << ')';
   }
 
+  void VisitNamespace(NamespaceDecl *nsd) {
+    *OutputStream << "(Namespace " << nsd->getNameAsString() << ' ';
+    locationDebug(nsd->getSourceRange());
+
+    for (auto *decl : nsd->decls())
+      DispatchDecl(decl);
+
+    *OutputStream << ')';
+  }
+
   void DispatchDecl(Decl *decl) {
     if (!decl)
       return;
@@ -258,6 +268,7 @@ public:
       DISPATCH_DECL(ParmVar)
       DISPATCH_DECL(ClassTemplate)
       IGNORE_DECL(LinkageSpec)
+      DISPATCH_DECL(Namespace)
     default:
       locationDebug(decl->getSourceRange());
       return VisitDecl(decl);
