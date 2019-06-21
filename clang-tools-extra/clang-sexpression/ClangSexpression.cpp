@@ -65,6 +65,18 @@ static llvm::cl::extrahelp
 static std::shared_ptr<llvm::raw_ostream> OutputStream;
 static std::shared_ptr<llvm::raw_ostream> DebugOutputStream;
 
+// Wait for D63276 to get merged.
+static SourceRange GetFunctionParametersSourceRange(const FunctionDecl *decl) {
+  auto NP = decl->getNumParams();
+  if (NP == 0)
+    return SourceRange();
+
+  auto Begin = decl->parameters()[0]->getSourceRange().getBegin();
+  auto End = decl->parameters()[NP - 1]->getSourceRange().getEnd();
+
+  return SourceRange(Begin, End);
+}
+
 class SexpVisitor {
 public:
   void printType(QualType t, const SourceRange &range) {
@@ -99,10 +111,9 @@ public:
 
     *OutputStream << "(Function " << f->getNameAsString() << ' ';
 
-    printType(f->getType(), f->getSourceRange());
+    printType(f->getReturnType(), f->getReturnTypeSourceRange());
     *OutputStream << "(FunctionParameters ";
-
-    locationDebug(f->getSourceRange());
+    locationDebug(GetFunctionParametersSourceRange(f));
     for (auto param : f->parameters())
       DispatchDecl((ParmVarDecl *)param);
     *OutputStream << ')';
