@@ -107,7 +107,7 @@ public:
       return;
 
     // 2, because they're not printed in the DispatchDecl function.
-    locationDebug(f->getBody(f)->getSourceRange(), 2);
+    locationDebug(f->getSourceRange(), 2);
 
     *OutputStream << "(Function " << f->getNameAsString() << ' ';
 
